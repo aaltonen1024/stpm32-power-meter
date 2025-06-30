@@ -1,0 +1,154 @@
+#include <Wire.h>
+#include <SPI.h>
+#include "stpm32.h"
+#include <Adafruit_SSD1306.h>
+
+// Display configuration
+#define SCREEN_WIDTH    128
+#define SCREEN_HEIGHT   64
+
+// Pin definitions
+#define BUTTON_PIN1     4    // Reset button
+#define BUTTON_PIN2     13   // Mode selection button
+#define STPM_CS         5    // STPM SPI CS pin
+#define STPM_SYN        14   // STPM SPI SYN pin
+#define STPM_RES        12   // STPM SPI RES pin
+
+
+#define RUPIAH_PER_KWH 1352
+
+// Global variables
+volatile bool buttonPressed2 = false;  
+int lastState1 = LOW;
+int currentState1;
+int displayMode = 0;  // Counter for display modes (0-3)
+
+// Initialize objects
+stpm32 stpm2(STPM_RES, STPM_CS, STPM_SYN);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// Display update function
+void updateDisplay() {
+    display.clearDisplay();
+    float energyKWh;
+    float biaya;
+
+    switch(displayMode) {
+        case 0:  // Active Energy
+            display.setTextSize(1);
+            display.setCursor(0, 0);
+            display.print("ENERGI AKTIF");
+            display.setTextSize(2);
+            display.setCursor(0, 20);
+            energyKWh = (stpm2.readActiveEnergy(1) * 10.0) / 1000.0;
+            display.print(energyKWh, 4);
+            display.print(" kWh");
+            break;
+
+        case 1:  // Cost
+            display.setTextSize(1);
+            display.setCursor(0, 0);
+            display.print("BIAYA LISTRIK");
+            display.setTextSize(2);
+            display.setCursor(0, 20);
+            energyKWh = (stpm2.readActiveEnergy(1) * 10.0) / 1000.0;
+            biaya = energyKWh * RUPIAH_PER_KWH;
+            display.print("Rp ");
+            display.print(biaya, 2);
+            break;
+
+        case 2:  // Voltage and Current
+            display.setTextSize(1);
+            display.setCursor(0, 0);
+            display.print("TEGANGAN");
+            display.setTextSize(2);
+            display.setCursor(0, 10);
+            display.print(stpm2.readRMSVoltage(1), 1);
+            display.print(" V");
+            
+            display.setTextSize(1);
+            display.setCursor(0, 35);
+            display.print("ARUS");
+            display.setTextSize(2);
+            display.setCursor(0, 45);
+            display.print(stpm2.readRMSCurrent(1) * 1000, 2);  
+            display.print(" mA");
+            break;
+
+        case 3:  // Active Power
+            display.setTextSize(1);
+            display.setCursor(0, 0);
+            display.print("DAYA AKTIF");
+            display.setTextSize(2);
+            display.setCursor(0, 20);
+            display.print(stpm2.readActivePower(1), 1);
+            display.print(" W");
+            break;
+    }
+    display.display();
+}
+
+// Interrupt handler
+void handleButtonPress2() {
+    buttonPressed2 = true;
+}
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(BUTTON_PIN1, INPUT_PULLUP);
+    pinMode(BUTTON_PIN2, INPUT_PULLUP);
+    pinMode(STPM_SYN, OUTPUT);
+    pinMode(STPM_CS, OUTPUT);
+    
+    digitalWrite(STPM_SYN, HIGH);
+    digitalWrite(STPM_CS, HIGH);
+    
+    // Initialize display
+    display.setTextColor(WHITE);
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println("SSD1306 allocation failed");
+        while(1);
+    }
+    
+    // Initialize STPM
+    if (!stpm2.init()) {
+        Serial.println("STPM Init Failed");
+    }
+    stpm2.setCalibration(1.008, 10.8);
+    
+    // Attach interrupt
+    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN2), handleButtonPress2, FALLING);
+}
+
+void loop() {
+    // Handle reset button
+    currentState1 = digitalRead(BUTTON_PIN1);
+    if (lastState1 == HIGH && currentState1 == LOW) {
+        Serial.println("Reset button pressed");
+        delay(200);  // Debounce delay
+    }
+    lastState1 = currentState1;
+
+    // Handle mode selection
+    if (buttonPressed2) {
+        buttonPressed2 = false;
+        displayMode = (displayMode + 1) % 4; 
+        Serial.print("Display mode: ");
+        Serial.println(displayMode);
+    }
+
+    // Update display and print debug info
+    updateDisplay();
+    float activePower = stpm2.readActivePower(1);
+    float rmsCurrent = stpm2.readRMSCurrent(1) * 1000; 
+    float rmsVoltage = stpm2.readRMSVoltage(1);
+    double energyKWh = (stpm2.readActiveEnergy(1) * 10.0) / 1000.0;
+    
+    Serial.printf("Active Power:\t%.2fW\n", activePower);
+    Serial.printf("RMS Current:\t%.2fmA\n", rmsCurrent);
+    Serial.printf("RMS Voltage:\t%.2fV\n", rmsVoltage);
+    Serial.printf("Active Energy:\t%.4f kWh\n", energyKWh);
+    Serial.println("________________");
+    
+    delay(1000);
+}
