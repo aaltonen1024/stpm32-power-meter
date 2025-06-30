@@ -1,0 +1,98 @@
+#include <Wire.h>
+#include <SPI.h>
+#include "stpm32.h" 
+#include <Adafruit_SSD1306.h>
+
+// Display configuration
+#define SCREEN_WIDTH    128
+#define SCREEN_HEIGHT   64
+#define OLED_RESET      -1
+
+// Pin definitions
+#define BUTTON_PIN1     4     // Reset button pin 
+#define STPM_CS         5     // STPM SPI CS pin
+#define STPM_SYN        14    // STPM SPI SYN pin
+#define STPM_RES        12    // STPM SPI RES pin
+
+// Global variables
+int lastState = LOW;
+int currentState;
+
+// Initialize objects 
+stpm32 stpm2(STPM_RES, STPM_CS, STPM_SYN);  // Class name changed to stpm32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+void setup() {
+    Serial.begin(115200);
+    pinMode(BUTTON_PIN1, INPUT_PULLUP);
+
+    // Initialize display
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println("SSD1306 allocation failed");
+        while(1);
+    }
+
+    // Initialize STPM
+    if (!stpm2.init()) {
+        Serial.println("STPM Init Failed");
+    }
+    stpm2.setCalibration(1.003, 1);  // Calibration function remains
+}
+
+void loop() {
+    // Read measurements
+    display.clearDisplay();
+
+    float rmsVoltage = stpm2.readRMSVoltage(1);
+    float rmsCurrent = stpm2.readRMSCurrent(1) * 1000;  
+    float activePower = stpm2.readActivePower(1);
+    double energyWh = stpm2.readActiveEnergy(1) * 10.0;  
+
+    // Convert values to strings for display
+    char voltageStr[10], currentStr[10], powerStr[10], energyStr[12];
+    dtostrf(rmsVoltage, 7, 2, voltageStr);
+    dtostrf(rmsCurrent, 7, 2, currentStr);
+    dtostrf(activePower, 7, 2, powerStr);
+    dtostrf(energyWh, 9, 3, energyStr);
+
+    // Organized OLED Output
+    display.setCursor(0, 0);
+    display.print("STPM32 Meter");  
+
+    display.setCursor(0, 16);
+    display.print("V RMS: ");
+    display.setCursor(64, 16);
+    display.print(voltageStr);
+    display.print(" V");
+
+    display.setCursor(0, 28);
+    display.print("I RMS: ");
+    display.setCursor(64, 28);
+    display.print(currentStr);
+    display.print(" mA"); 
+
+    display.setCursor(0, 40);
+    display.print("P Act: ");
+    display.setCursor(64, 40);
+    display.print(powerStr);
+    display.print(" W");
+
+    display.setCursor(0, 52);
+    display.print("E Act: ");
+    display.setCursor(64, 52);
+    display.print(energyStr);
+    display.print(" Wh");
+
+    display.display();
+
+    // Print debug information
+    Serial.printf("RMS Voltage:\t%.2f V\n", rmsVoltage);
+    Serial.printf("RMS Current:\t%.2f mA\n", rmsCurrent);
+    Serial.printf("Active Power:\t%.2f W\n", activePower);
+    Serial.printf("Active Energy:\t%.3f Wh\n", energyWh);
+    Serial.println("________________");
+
+    delay(1000);
+}
